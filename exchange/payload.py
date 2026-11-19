@@ -16,6 +16,7 @@ class BundlePayload:
     seams: tuple[Seam, ...]
     chains: tuple[FragmentChain, ...]
     rules: tuple[RuleEvidence, ...]
+    corridors: tuple[tuple[str, str], ...] | None = None
 
 
 def _encode_endpoint(endpoint: Endpoint) -> list[str]:
@@ -32,14 +33,17 @@ def _fragment_row(fragment: Fragment) -> list:
 
 
 def encode_payload(payload: BundlePayload) -> bytes:
-    return canonical_json({
+    document = {
         'junctions': [junction.id for junction in payload.junctions],
         'roads': [[road.id, road.start, road.end, encode_cost(road.cost)] for road in payload.roads],
         'tiles': list(payload.tiles),
         'seams': [[seam.key.road_id, seam.key.id, seam.x, seam.y] for seam in payload.seams],
         'fragments': [_fragment_row(fragment) for chain in payload.chains for fragment in chain.fragments],
         'rules': [[rule.id, rule.roads, rule.fragment_refs] for rule in payload.rules],
-    })
+    }
+    if payload.corridors is not None:
+        document['corridors'] = [[road_id, corridor_id] for road_id, corridor_id in payload.corridors]
+    return canonical_json(document)
 
 
 def _array(value, field: str) -> list:
@@ -81,10 +85,26 @@ def _decode_rule(value) -> RuleEvidence:
     )
 
 
+def _decode_corridors(value) -> tuple[tuple[str, str], ...]:
+    rows = _array(value, 'corridors')
+    pairs = []
+    for row in rows:
+        road_id, corridor_id = _row(row, 2, 'corridor attribution')
+        pairs.append((require_name(road_id, 'corridor road'), require_name(corridor_id, 'corridor id')))
+    return tuple(pairs)
+
+
 def decode_payload(encoded: bytes) -> BundlePayload:
     document = read_json(encoded)
-    fields = {'junctions', 'roads', 'tiles', 'seams', 'fragments', 'rules'}
-    if not isinstance(document, dict) or document.keys() != fields:
+    base_fields = {'junctions', 'roads', 'tiles', 'seams', 'fragments', 'rules'}
+    if not isinstance(document, dict):
+        raise ValueError('invalid bundle payload fields')
+    fields = set(document)
+    if fields == base_fields | {'corridors'}:
+        corridors = _decode_corridors(document['corridors'])
+    elif fields == base_fields:
+        corridors = None
+    else:
         raise ValueError('invalid bundle payload fields')
     junctions = tuple(Junction(name) for name in _array(document['junctions'], 'junctions'))
     roads = tuple(
@@ -97,4 +117,6 @@ def decode_payload(encoded: bytes) -> BundlePayload:
     )
     chains = assemble_fragment_chains(_decode_fragment(value) for value in _array(document['fragments'], 'fragments'))
     rules = tuple(_decode_rule(value) for value in _array(document['rules'], 'rules'))
-    return BundlePayload(junctions, roads, tuple(_array(document['tiles'], 'tiles')), seams, chains, rules)
+    return BundlePayload(
+        junctions, roads, tuple(_array(document['tiles'], 'tiles')), seams, chains, rules, corridors
+    )

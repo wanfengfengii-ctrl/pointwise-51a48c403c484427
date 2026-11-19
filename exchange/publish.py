@@ -11,7 +11,10 @@ def publish(
 ) -> tuple[str, bytes]:
     revision = load_revision(revisions, revision_id)
     layout = prepare_layout(revision, plan)
-    payload = BundlePayload(revision.junctions, revision.roads, layout.tiles, layout.seams, layout.chains, layout.rules)
+    payload = BundlePayload(
+        revision.junctions, revision.roads, layout.tiles, layout.seams, layout.chains, layout.rules,
+        revision.corridors,
+    )
     encoded = encode_payload(payload)
     manifest = build_manifest(revision.id, layout.id, encoded)
     wire = catalog.commit_publication(manifest, encoded)

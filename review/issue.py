@@ -1,9 +1,10 @@
 from exchange.catalog import BundleCatalog
 from exchange.manifest import unpack_bundle
 from exchange.payload import decode_payload
-from review.record_store import RecordStore, ReviewRecord
+from review.record_store import PairRecord, PairRoute, RecordStore, ReviewRecord
 from review.requests import ReviewRequest, validate_request
 from routing.itineraries import calculate_itinerary
+from routing.pairs import calculate_pair
 
 
 def issue(catalog: BundleCatalog, records: RecordStore, request: ReviewRequest) -> ReviewRecord:
@@ -19,3 +20,30 @@ def issue(catalog: BundleCatalog, records: RecordStore, request: ReviewRequest) 
     validate_request(request, payload)
     itinerary = calculate_itinerary(payload, request.start, request.end)
     return records.commit(request, itinerary)
+
+
+def issue_pair(
+    catalog: BundleCatalog, records: RecordStore, bundle_id: str, start: str, end: str
+) -> PairRecord:
+    wire = catalog.find_accepted(bundle_id)
+    if wire is None:
+        raise KeyError(bundle_id)
+    manifest, encoded = unpack_bundle(wire)
+    if manifest.bundle_id != bundle_id:
+        raise ValueError('accepted bundle does not match the requested id')
+    payload = decode_payload(encoded)
+    request = ReviewRequest(bundle_id, start, end)
+    validate_request(request, payload)
+    if payload.corridors is None:
+        raise ValueError('bundle has no corridor attribution')
+    if start == end:
+        raise ValueError('pair review endpoints must be two different real junctions')
+    main, backup, total = calculate_pair(payload, request.start, request.end)
+    if main is None:
+        return records.commit_pair(request, None, None, None)
+    return records.commit_pair(
+        request,
+        PairRoute(main.roads, main.corridors, main.cost),
+        PairRoute(backup.roads, backup.corridors, backup.cost),
+        total,
+    )

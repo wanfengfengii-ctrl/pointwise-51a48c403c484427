@@ -13,9 +13,9 @@ python3 -B demo.py
 
 ## Python 入口
 
-- `survey.revision_store.RevisionStore(path)` 保存源修订，`survey.revisions.save_revision(store, junctions, roads, restrictions)` 追加固定修订并返回修订号。`load_revision(store, revision_id)` 读取该号。
-- `exchange.catalog.BundleCatalog(path)` 保存发布件或隔离接纳件。`exchange.publish.publish(revisions, catalog, revision_id, plan)` 返回 `(bundle_id, wire)`。`exchange.imports.import_bundle(catalog, wire)` 核验并接纳 `bytes`，返回包号。`find_published` 和 `find_accepted` 按号返回实件或 `None`。
-- `review.record_store.RecordStore(path)` 保存核查单。`review.issue.issue(catalog, records, ReviewRequest(bundle_id, start, end))` 返回固定核查单。`review.retrieve.retrieve(records, record_id)` 返回原单或 `None`。`review.compare.compare(records, before_id, after_id)` 返回两单及可达性、原路段序列和代价变化。
+- `survey.revision_store.RevisionStore(path)` 保存源修订，`survey.revisions.save_revision(store, junctions, roads, restrictions, *, corridors=None)` 追加固定修订并返回修订号。`corridors` 是每个有向原路段到物理走廊的完整归属；省略即 V1 无归属修订。`load_revision(store, revision_id)` 读取该号。
+- `exchange.catalog.BundleCatalog(path)` 保存发布件或隔离接纳件。`exchange.publish.publish(revisions, catalog, revision_id, plan)` 返回 `(bundle_id, wire)`。有归属的修订把 `corridors` 写进载荷并由清单摘要绑定；接纳时逐路复核。`exchange.imports.import_bundle(catalog, wire)` 核验并接纳 `bytes`，返回包号。`find_published` 和 `find_accepted` 按号返回实件或 `None`。
+- `review.record_store.RecordStore(path)` 保存核查单与主备单。`review.issue.issue(catalog, records, ReviewRequest(bundle_id, start, end))` 返回固定核查单。`review.issue.issue_pair(catalog, records, bundle_id, start, end)` 从已接纳且有归属的包签出主备单。`review.retrieve.retrieve(records, record_id)` 与 `review.retrieve.retrieve_pair(records, record_id)` 返回原单或 `None`。`review.compare.compare(records, before_id, after_id)` 返回两单及可达性、原路段序列和代价变化。
 
 先对各存储对象调用 `initialize()`。源端的修订和发布目录可共用一个 SQLite 文件，隔离端的接纳目录与核查单也可共用一个文件。业务调用按次管理连接和写入事务。提交失败传播 SQLite 错误并回滚本次写入。未知修订、未知包和对照中的未知单号引发 `KeyError`。非法声明、包或端点及不同端点对的对照引发 `ValueError`。
 
@@ -26,3 +26,5 @@ python3 -B demo.py
 交换件为含 `manifest` 和 `payload` 的 JSON 对象。清单绑定包号、修订、布局和载荷摘要。载荷保存实路口、有向路段、幅面、缝点、完整片段与规则对应。发布时核对该修订的规则覆盖，接纳时核对实件内部关系。接纳按规范内容判断重复件，已有包号的绑定保持固定。
 
 寻路用完成的原路段推进规则。人工缝点只能接续所属链，同坐标的缝点仍是各自的身份。路线按总代价、原路段号序列排序。同一实路口到自身返回空序列和 0。合法端点间没有可走路线时签出不可达，路线与代价均为 `None`。
+
+主备单要求两个不同的实路口。路线之间不得共用任一走廊，允许重访实路口与同一走廊内部往返。先最小化两路总价，再以 `(单路代价, 原路段号序列)` 区分主备，最后按主、备原序列取字典序首项。无可行对时仍提交带请求的空主备单。主备单按号只读领取，不重算也不访问源库。

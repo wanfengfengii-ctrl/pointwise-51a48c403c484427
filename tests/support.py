@@ -35,12 +35,16 @@ class WorksiteTest(TestCase):
         self.junctions, self.roads, self.rules, self.plans = load_sample()
         self.single, self.split = self.plans['single'], self.plans['split']
 
-    def save(self, *, junctions=None, roads=None, rules=None):
+    def save(self, *, junctions=None, roads=None, rules=None, corridors=None):
+        kwargs = {}
+        if corridors is not None:
+            kwargs['corridors'] = corridors
         return save_revision(
             self.revisions,
             self.junctions if junctions is None else junctions,
             self.roads if roads is None else roads,
             self.rules if rules is None else rules,
+            **kwargs,
         )
 
     def publish(self, revision_id, plan):
@@ -99,7 +103,7 @@ def read_payload(wire):
 
 
 def reject_next_commit(path, table, condition='1'):
-    if table not in ('fixed_bundles', 'review_records'):
+    if table not in ('fixed_bundles', 'review_records', 'pair_records'):
         raise ValueError(table)
     with connect(path) as database:
         database.executescript(f'''
